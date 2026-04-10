@@ -39,15 +39,14 @@ struct ControlPacket {
 #pragma pack(pop)
 
 enum Command : uint8_t {
-    CMD_STOP          = 0x00,
-    CMD_FORWARD       = 0x01,
-    CMD_BACKWARD      = 0x02,
-    CMD_TURN_LEFT     = 0x03,
-    CMD_TURN_RIGHT    = 0x04,
-    CMD_GRIPPER_CLOSE = 0x05,
-    CMD_GRIPPER_OPEN  = 0x06,
-    CMD_MOVE_UP       = 0x07,
-    CMD_MOVE_DOWN     = 0x08,
+    CMD_STOP           = 0x00,
+    CMD_FORWARD        = 0x01,
+    CMD_BACKWARD       = 0x02,
+    CMD_TURN_LEFT      = 0x03,
+    CMD_TURN_RIGHT     = 0x04,
+    CMD_GRIPPER_TOGGLE = 0x05,
+    CMD_MOVE_UP        = 0x06,
+    CMD_MOVE_DOWN      = 0x07,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -91,6 +90,7 @@ static volatile uint8_t  g_lastSeq     = 0;
 static unsigned long     g_lastRecvMs  = 0;
 static uint32_t          g_recvCount   = 0;
 static uint32_t          g_badCount    = 0;
+static bool              g_gripperOpen = true;  // Starts open
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  MOTOR CONTROL HELPERS
@@ -147,12 +147,10 @@ static void executeCommand(uint8_t cmd) {
         case CMD_TURN_LEFT:     motorsTurnLeft();   break;
         case CMD_TURN_RIGHT:    motorsTurnRight();  break;
 
-        case CMD_GRIPPER_CLOSE:
-            gripperServo.write(GRIPPER_CLOSE_ANGLE);
-            break;
-
-        case CMD_GRIPPER_OPEN:
-            gripperServo.write(GRIPPER_OPEN_ANGLE);
+        case CMD_GRIPPER_TOGGLE:
+            g_gripperOpen = !g_gripperOpen;
+            gripperServo.write(g_gripperOpen ? GRIPPER_OPEN_ANGLE : GRIPPER_CLOSE_ANGLE);
+            Serial.printf("[RX]   Gripper now: %s\n", g_gripperOpen ? "OPEN" : "CLOSED");
             break;
 
         case CMD_MOVE_UP:
@@ -269,7 +267,7 @@ void loop() {
         // Log and execute
         static const char* CMD_NAMES[] = {
             "STOP", "FORWARD", "BACKWARD", "TURN LEFT", "TURN RIGHT",
-            "GRIPPER CLOSE", "GRIPPER OPEN", "MOVE UP", "MOVE DOWN"
+            "GRIPPER TOGGLE", "MOVE UP", "MOVE DOWN"
         };
         uint8_t cmd = g_lastCommand;
         if (cmd <= CMD_MOVE_DOWN) {

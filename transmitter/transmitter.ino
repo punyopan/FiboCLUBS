@@ -12,8 +12,7 @@
  *    GPIO 12  →  BACKWARD
  *    GPIO 14  →  TURN LEFT
  *    GPIO 27  →  TURN RIGHT
- *    GPIO 26  →  GRIPPER CLOSE
- *    GPIO 25  →  GRIPPER OPEN
+ *    GPIO 26  →  GRIPPER TOGGLE (press to open/close)
  *    GPIO 33  →  MOVE UP
  *    GPIO 32  →  MOVE DOWN
  *
@@ -48,15 +47,14 @@ static uint8_t RECEIVER_MAC[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 //  COMMAND PROTOCOL — single-byte commands for minimum latency
 // ─────────────────────────────────────────────────────────────────────────────
 enum Command : uint8_t {
-    CMD_STOP          = 0x00,
-    CMD_FORWARD       = 0x01,
-    CMD_BACKWARD      = 0x02,
-    CMD_TURN_LEFT     = 0x03,
-    CMD_TURN_RIGHT    = 0x04,
-    CMD_GRIPPER_CLOSE = 0x05,
-    CMD_GRIPPER_OPEN  = 0x06,
-    CMD_MOVE_UP       = 0x07,
-    CMD_MOVE_DOWN     = 0x08,
+    CMD_STOP           = 0x00,
+    CMD_FORWARD        = 0x01,
+    CMD_BACKWARD       = 0x02,
+    CMD_TURN_LEFT      = 0x03,
+    CMD_TURN_RIGHT     = 0x04,
+    CMD_GRIPPER_TOGGLE = 0x05,
+    CMD_MOVE_UP        = 0x06,
+    CMD_MOVE_DOWN      = 0x07,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -85,20 +83,20 @@ static constexpr uint8_t PIN_LED = 2;  // Built-in LED on most ESP32 DevKit boar
 struct ButtonDef {
     uint8_t pin;
     Command command;
-    const char* label;  // For serial debug output
+    const char* label;   // For serial debug output
+    bool        repeats; // true = re-send while held (movement), false = fire once (toggle)
 };
 
 // Why these specific GPIOs: they are all safe-to-use input pins on ESP32
 // that don't interfere with boot strapping or flash operations.
 static const ButtonDef BUTTONS[] = {
-    {13, CMD_FORWARD,       "FORWARD"},
-    {12, CMD_BACKWARD,      "BACKWARD"},
-    {14, CMD_TURN_LEFT,     "TURN LEFT"},
-    {27, CMD_TURN_RIGHT,    "TURN RIGHT"},
-    {26, CMD_GRIPPER_CLOSE, "GRIPPER CLOSE"},
-    {25, CMD_GRIPPER_OPEN,  "GRIPPER OPEN"},
-    {33, CMD_MOVE_UP,       "MOVE UP"},
-    {32, CMD_MOVE_DOWN,     "MOVE DOWN"},
+    {13, CMD_FORWARD,        "FORWARD",        true},
+    {12, CMD_BACKWARD,       "BACKWARD",       true},
+    {27, CMD_TURN_LEFT,      "TURN LEFT",      true},
+    {26, CMD_TURN_RIGHT,     "TURN RIGHT",     true},
+    {34, CMD_GRIPPER_TOGGLE, "GRIPPER TOGGLE", false},  // single-fire toggle
+    {33, CMD_MOVE_UP,        "MOVE UP",        true},
+    {32, CMD_MOVE_DOWN,      "MOVE DOWN",      true},
 };
 
 static constexpr size_t NUM_BUTTONS = sizeof(BUTTONS) / sizeof(BUTTONS[0]);
@@ -175,7 +173,7 @@ void setup() {
 
     Serial.println();
     Serial.println("╔══════════════════════════════════════════════════╗");
-    Serial.println("║   FiboCLUBS — ESP32 P2P Robot Transmitter       ║");
+    Serial.println("║   FiboCLUBS — ESP32 P2P Robot Transmitter        ║");
     Serial.println("╚══════════════════════════════════════════════════╝");
 
     // ── Configure GPIO ──────────────────────────────────────────────
@@ -257,11 +255,12 @@ void loop() {
         }
 
         // Continuous send while held (for smooth motion control)
+        // Toggle buttons (repeats=false) only fire once on press, not while held.
         if (g_btnState[i].pressed) {
             anyPressed = true;
             g_lastAnyPressMs = now;
 
-            if ((now - g_btnState[i].lastSendMs) >= REPEAT_INTERVAL_MS) {
+            if (BUTTONS[i].repeats && (now - g_btnState[i].lastSendMs) >= REPEAT_INTERVAL_MS) {
                 sendCommand(BUTTONS[i].command);
                 g_btnState[i].lastSendMs = now;
             }
